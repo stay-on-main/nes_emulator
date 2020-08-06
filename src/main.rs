@@ -284,8 +284,21 @@ impl Cpu {
         self.update_bit(StatusBit::Zero, self.a);
     }
 
-    fn sta(&mut self, byte: u8) {
-        todo!();
+    fn sta(&mut self) {
+        self.bus.write(self.op_addr, self.a);
+    }
+
+    fn stx(&mut self) {
+        self.bus.write(self.op_addr, self.x);
+    }
+
+    fn sty(&mut self) {
+        self.bus.write(self.op_addr, self.y);
+    }
+
+    fn sax(&mut self) {
+        self.op = self.x & self.a;
+        self.bus.write(self.op_addr, self.op);
     }
 
     fn dec(&mut self) {
@@ -411,9 +424,7 @@ impl Cpu {
         self.op = self.bus.read(self.op_addr);
     }
     
-    // LDA, LDX, LDY, EOR, AND, ORA, ADC, SBC, CMP, BIT, LAX, LAE, SHS, NOP
-    fn absolute_indexed_read(&mut self, index: u8, func: fn (&mut Cpu, u8)) {
-        // 2
+    fn abs_index(&mut self, index: u8) {
         let l = self.fetch_u8();
         // 3
         let mut h = self.fetch_u8() as u16;
@@ -425,172 +436,57 @@ impl Cpu {
         if overflow {
             // page boundary was crossed
             h += 1;
-            self.bus.clock();
+            //self.bus.clock();
         }
         // 5
-        let addr = (h << 8) | l;
-        let val = self.bus.read(addr);
-        func(self, val);
+        self.op_addr = (h << 8) | l;
+        self.op = self.bus.read(self.op_addr);
     }
 
-    // ASL, LSR, ROL, ROR, INC, DEC, SLO, SRE, RLA, RRA, ISB, DCP
-    fn absolute_indexed_read_modify_write(&mut self, index: u8, func: fn (&mut Cpu, u8) -> u8) {
-        // 2
-        let l = self.fetch_u8();
-        // 3
-        let mut h = self.fetch_u8() as u16;
-        let overflow = (l as u16 + index as u16) > 0xff;
-        let l = l.wrapping_add(index) as u16;
-        // 4
-        // The high byte of the effective address may be invalid
-        // at this time, i.e. it may be smaller by $100.
-        self.bus.read((h << 8) | l);
-
-        if overflow {
-            // page boundary was crossed
-            h += 1;
-        }
-
-        let addr = (h << 8) | l;
-        // 5
-        let val = self.bus.read(addr);
-        // 6
-        // write the value back to effective address, and do the operation on it
-        self.bus.write(addr, val);
-         //do the operation on 'val'
-        let val = func(self, val);
-        // 7
-        self.bus.write(addr, val);
+    fn abs_x(&mut self) {
+        self.abs_index(self.x);
     }
-    
-    // STA, STX, STY, SHA, SHX, SHY
-    fn absolute_indexed_write(&mut self, index: u8, reg_val: u8) {
-        // 2
-        let l = self.fetch_u8();
-        // 3
-        let mut h = self.fetch_u8() as u16;
-        let overflow = (l as u16 + index as u16) > 0xff;
-        let l = l.wrapping_add(index)  as u16;
-        // 4
-        // The high byte of the effective address may be invalid
-        // at this time, i.e. it may be smaller by $100.
-        self.bus.read((h << 8) | l);
 
-        if overflow {
-            h += 1;
-        }
-        // 5
-        let addr = (h << 8) | l;
-        self.bus.write(addr, reg_val);
+    fn abs_y(&mut self) {
+        self.abs_index(self.y);
     }
-    
+
     // BCC, BCS, BNE, BEQ, BPL, BMI, BVC, BVS
-    fn relative(&mut self, condition: bool) {
+    fn rel(&mut self) {
         // 2
         let operand = self.fetch_u8() as i8;
         //self.bus.read(self.pc);
-        if condition {
+        //if condition {
             // 3
-            self.bus.clock();
+            //self.bus.clock();
             let new_pc = (self.pc as i32 + operand as i32) as u16;
 
             if new_pc >> 8 != self.pc >> 8 {
-                self.bus.clock();
+                //self.bus.clock();
             }
 
-            self.pc = new_pc;
+            self.op_addr = new_pc;
             //self.pcl += operand;
-            
-        } else {
-            //self.pc += 1;
-        }
+        //}
         // 4
         //todo!();
     }
     
-    // LDA, ORA, EOR, AND, ADC, CMP, SBC, LAX
-    fn indexed_x_read(&mut self, func: fn (&mut Cpu, u8)) {
+    fn ind_x(&mut self) {
         // 2
         let addr = self.fetch_u8();
         // 3
-        self.bus.read(addr as u16);
         let addr = addr.wrapping_add(self.x);
         // 4
         let l = self.bus.read(addr as u16) as u16;
         // 5
         let h = self.bus.read(addr.wrapping_add(1) as u16) as u16;
         // 6
-        let addr = (h << 8) | l;
-        let val = self.bus.read(addr);
-        func(self, val);
+        self.op_addr = (h << 8) | l;
+        self.op = self.bus.read(addr);
     }
     
-    // SLO, SRE, RLA, RRA, ISB, DCP
-    fn indexed_x_read_modify_write(&mut self, func: fn (&mut Cpu, u8) -> u8) {
-        // 2
-        let addr = self.fetch_u8();
-        // 3
-        self.bus.read(addr as u16);
-        let addr = addr.wrapping_add(self.x);
-        // 4
-        let l = self.bus.read(addr as u16) as u16;
-        // 5
-        let h = self.bus.read(addr.wrapping_add(1) as u16) as u16;
-        // 6
-        let addr = (h << 8) | l;
-        let val = self.bus.read(addr);
-        // 7
-        // write the value back to effective address, and do the operation on it
-        self.bus.write(addr, val);
-        let val = func(self, val);
-        // 8
-        self.bus.write(addr, val);
-    }
-    
-    // STA, SAX
-    fn indexed_x_write(&mut self, reg_val: u8) {
-        // 2
-        let addr = self.fetch_u8();
-        // 3
-        let addr = addr.wrapping_add(self.x);
-        self.bus.clock();
-        // 4
-        let l = self.bus.read(addr as u16) as u16;
-        // 5
-        let h = self.bus.read(addr.wrapping_add(1) as u16) as u16;
-        // 6
-        let addr = (h << 8) | l;
-        self.bus.write(addr, reg_val);
-    }
-
-    // LDA, EOR, AND, ORA, ADC, SBC, CMP
-    fn indexed_y_read(&mut self, func: fn (&mut Cpu, u8)) {
-        // 2 fetch pointer address, increment PC
-        let pointer_addr = self.fetch_u8();
-        // 3 fetch effective address low
-        let pointer_l = self.bus.read(pointer_addr as  u16);
-        // 4
-        let mut pointer_h = self.bus.read(pointer_addr.wrapping_add(1) as u16) as u16;
-        let overflow = (pointer_l as u16 + self.y as u16) > 0xff;
-        let pointer_l = pointer_l.wrapping_add(self.y) as u16;
-        // 5
-        // The high byte of the effective address may be invalid
-        // at this time, i.e. it may be smaller by $100.
-        if overflow {
-            pointer_h += 1;
-            self.bus.clock();
-        }
-
-        let pointer = (pointer_h << 8) | pointer_l;
-        // 6
-        // + This cycle will be executed only if the effective address
-        // was invalid during cycle #5, i.e. page boundary was crossed.
-        let val = self.bus.read(pointer);
-        func(self, val);
-    }
-    
-    // SLO, SRE, RLA, RRA, ISB, DCP
-    fn indexed_y_read_modify_write(&mut self, func: fn (&mut Cpu, u8) -> u8) {
+    fn ind_y(&mut self) {
         // 2
         let pointer_addr = self.fetch_u8() as u16;
         // 3
@@ -602,42 +498,139 @@ impl Cpu {
         // 5
         // The high byte of the effective address may be invalid
         // at this time, i.e. it may be smaller by $100.
-        self.bus.read((pointer_h << 8) | pointer_l);
-
         if overflow {
             pointer_h += 1;
         }
 
-        let pointer = (pointer_h << 8) | pointer_l;
-        // 6
-        let val = self.bus.read(pointer);
-        // 7
-        self.bus.write(pointer, val);
-        // do the operation on it
-        let val = func(self, val);
-        // 8
-        self.bus.write(pointer, val);
-    }
-    
-    // STA, SHA
-    fn indexed_y_write(&mut self, reg_val: u8) {
-        // 2
-        let pointer_addr = self.fetch_u8();
-        // 3
-        let pointer_l = self.bus.read(pointer_addr as u16);
-        // 4
-        let pointer_h = self.bus.read(pointer_addr.wrapping_add(1) as u16) as u16;
-        let pointer_l = pointer_l.wrapping_add(self.y) as u16;
-        // 5
-        // The high byte of the effective address may be invalid
-        // at this time, i.e. it may be smaller by $100.
-        let pointer = (pointer_h << 8) | pointer_l;
-        self.bus.read(pointer);
-        // 6
-        self.bus.write(pointer, reg_val);
+        self.op_addr = (pointer_h << 8) | pointer_l;
+        self.op = self.bus.read(self.op_addr);
     }
 
-    fn indirect_jmp(&mut self) {
+    fn bcc(&mut self) {
+        if self.get_bit(StatusBit::Carry) == false {
+            self.pc = self.op_addr;
+        }
+    }
+
+    fn bcs(&mut self) {
+        if self.get_bit(StatusBit::Carry) == true {
+            self.pc = self.op_addr;
+        }
+    }
+
+    fn beq(&mut self) {
+        if self.get_bit(StatusBit::Zero) == true {
+            self.pc = self.op_addr;
+        }
+    }
+
+    fn bmi(&mut self) {
+        if self.get_bit(StatusBit::Sign) == true {
+            self.pc = self.op_addr;
+        }
+    }
+
+    fn bne(&mut self) {
+        if self.get_bit(StatusBit::Zero) == false {
+            self.pc = self.op_addr;
+        }
+    }
+
+    fn bpl(&mut self) {
+        if self.get_bit(StatusBit::Sign) == false {
+            self.pc = self.op_addr;
+        }
+    }
+
+    fn bvc(&mut self) {
+        if self.get_bit(StatusBit::Overflow) == false {
+            self.pc = self.op_addr;
+        }
+    }
+
+    fn bvs(&mut self) {
+        if self.get_bit(StatusBit::Overflow) == true {
+            self.pc = self.op_addr;
+        }
+    }
+
+    fn brk(&mut self) {
+        // 2
+        self.fetch_u8();
+        // 3
+        self.stack_push(self.pc as u8);
+        self.s -= 1;
+        // 4
+        self.stack_push((self.pc >> 8) as u8) ;
+        self.s -= 1;
+        // 5
+        self.stack_push(self.p | (1 << 6));// (StatusBit::Break as u8);
+        self.s -= 1;
+        // 6
+        self.pc = self.bus.read(0xfffe) as u16; // pcl
+        // 7
+        self.pc |= (self.bus.read(0xffff) as u16) << 8; // pch
+    }
+    
+    fn rti(&mut self) {
+        self.s += 1;
+        self.p = self.stack_pull() | (1 << 5);
+        self.s += 1;
+        self.pc = self.stack_pull() as u16;
+        self.s += 1;
+        self.pc |= (self.stack_pull() as u16) << 8;
+    }
+    
+    fn rts(&mut self) {
+        self.s += 1;
+        // 4
+        self.pc = self.stack_pull() as u16; // pcl
+        self.s += 1;
+        // 5
+        self.pc |= (self.stack_pull() as u16) << 8; // pch
+        // 6
+        self.pc += 1;
+    }
+    
+    fn pha(&mut self) {
+        self.stack_push(self.a);
+        self.s -= 1;
+    }
+    
+    fn php(&mut self) {
+        self.stack_push(self.p | (StatusBit::Break as u8));
+        self.s -= 1;
+    }
+
+    fn pla(&mut self) {
+        self.s += 1;
+        self.a = self.stack_pull();
+        self.update_bit(StatusBit::Sign, self.a);
+        self.update_bit(StatusBit::Zero, self.a);
+    }
+    
+    fn plp(&mut self) {
+        self.s += 1;
+        self.p = self.stack_pull();
+        self.p &= !(StatusBit::Break as u8);
+        self.p |=  1 << 5;
+    }
+
+    fn jsr(&mut self) {
+        let abl = self.fetch_u8();
+        self.stack_push((self.pc >> 8) as u8);
+        self.s -= 1;
+        self.stack_push(self.pc as u8);
+        self.s -= 1;
+        self.pc = (self.fetch_u8() as u16) << 8;
+        self.pc |= abl as u16;
+    }
+
+    fn jmp(&mut self) {
+        self.pc = self.op_addr;
+    }
+
+    fn ind(&mut self) {
         // 2
         let l = self.fetch_u8() as u16;
         // 3
@@ -647,8 +640,8 @@ impl Cpu {
         // 5
         // The PCH will always be fetched from the same page
         // than PCL, i.e. page boundary crossing is not handled.
-        self.pc = (self.bus.read(h | ((l + 1) & 0xff)) as u16) << 8; // pch
-        self.pc |= low as u16;
+        self.op_addr = (self.bus.read(h | ((l + 1) & 0xff)) as u16) << 8; // pch
+        self.op_addr |= low as u16;
     }
 
     fn info(&self, opcode: u8) -> Option<(fn (&mut Cpu), fn (&mut Cpu), &'static str)> {
@@ -734,7 +727,7 @@ impl Cpu {
             // DEC - Decrement Memory
             0xC6 => (Cpu::zp, Cpu::dec, "DEC"),
             0xD6 => (Cpu::zp_x, Cpu::dec, "DEC"),
-            0xCE => (Cpu::abs,, Cpu::dec, "DEC"),
+            0xCE => (Cpu::abs, Cpu::dec, "DEC"),
             0xDE => (Cpu::abs_x, Cpu::dec, "DEC"),
             // DEX - Decrement X Register
             0xCA => (Cpu::imp, Cpu::dex, "DEX"),
@@ -752,7 +745,7 @@ impl Cpu {
             // IGN
             0x04 | 0x44 | 0x64 => (Cpu::zp, Cpu::ign, "IGN"),
             0x0C => (Cpu::abs, Cpu::ign, "IGN"),
-            0x14 | 0x34 | 0x54 | 0x74 | 0xD4 | 0xF4 => (Cpu::zp_x,, Cpu::ign, "IGN"),
+            0x14 | 0x34 | 0x54 | 0x74 | 0xD4 | 0xF4 => (Cpu::zp_x, Cpu::ign, "IGN"),
             0x1C | 0x3C | 0x5C | 0x7C | 0xDC | 0xFC => (Cpu::abs_x, Cpu::ign, "IGN"),
             // INC - Increment Memory
             0xE6 => (Cpu::zp, Cpu::inc, "INC"),
@@ -841,13 +834,13 @@ impl Cpu {
             0x2A => (Cpu::acc, Cpu::rol, "ROL"),
             0x26 => (Cpu::zp, Cpu::rol, "ROL"),
             0x36 => (Cpu::zp_x, Cpu::rol, "ROL"),
-            0x2E => (Cpu::abs,, Cpu::rol, "ROL"),
+            0x2E => (Cpu::abs, Cpu::rol, "ROL"),
             0x3E => (Cpu::abs_x, Cpu::rol, "ROL"),
             // ROR - Rotate Right
             0x6A => (Cpu::acc, Cpu::ror, "ROR"),
             0x66 => (Cpu::zp, Cpu::ror, "ROR"),
             0x76 => (Cpu::zp_x, Cpu::ror, "ROR"),
-            0x6E => (Cpu::abs,, Cpu::ror, "ROR"),
+            0x6E => (Cpu::abs, Cpu::ror, "ROR"),
             0x7E => (Cpu::abs_x, Cpu::ror, "ROR"),
             // RRA
             0x63 => (Cpu::ind_x, Cpu::rra, "RRA"),
